@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Escáner de códigos</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 12px; background: #f4f4f7; color: #222; }
+  h1 { font-size: 20px; margin: 4px 0 12px; }
+  #video { width: 100%; max-height: 40vh; background: #000; border-radius: 8px; }
+  label { display: block; font-size: 14px; margin-top: 10px; font-weight: 600; }
+  input, select, textarea { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px; border: 1px solid #bbb; border-radius: 8px; margin-top: 4px; background: #fff; }
+  button { width: 100%; padding: 14px; font-size: 17px; border: 0; border-radius: 8px; background: #1565c0; color: #fff; margin-top: 12px; }
+  button:disabled { background: #999; }
+  #status { margin-top: 10px; font-size: 14px; min-height: 20px; }
+  .ok { color: #2e7d32; }
+  .err { color: #c62828; }
+  .row { display: flex; gap: 8px; }
+  .row > div { flex: 1; }
+</style>
+</head>
+<body>
+<h1>Escáner de códigos</h1>
+<video id="video" playsinline muted></video>
+<button id="startBtn" type="button">Iniciar cámara</button>
+
+<label for="codigo">Código</label>
+<input id="codigo" type="text" autocomplete="off" placeholder="Escanea o escribe">
+
+<label for="tipo">Tipo</label>
+<select id="tipo">
+  <option value="Bodega">Bodega</option>
+  <option value="Medidor">Medidor</option>
+</select>
+
+<div class="row">
+  <div>
+    <label for="formato">Formato</label>
+    <input id="formato" type="text" readonly>
+  </div>
+  <div>
+    <label for="cantidad">Cantidad / lectura</label>
+    <input id="cantidad" type="text" inputmode="decimal">
+  </div>
+</div>
+
+<label for="usuario">Usuario</label>
+<input id="usuario" type="text">
+
+<label for="notas">Notas</label>
+<textarea id="notas" rows="3"></textarea>
+
+<button id="guardarBtn" type="button">Guardar</button>
+<div id="status"></div>
+
+<script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script>
+  const ENDPOINT = 'https://script.google.com/macros/s/AKfycbzNcqTGDwQdr3IMw2BbSv-lKED2MIpGBadtIqnfDcQWD-WTg_V8FKLvhAsZkYiyj8Py/exec';
+  const TOKEN = 'esc_9Kq2Lw7Xm3RvT8nZ4pB1yH6dF0sJ';
+  const HOJA = 'Escaneos';
+
+  const $ = (id) => document.getElementById(id);
+  const hints = new Map();
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.CODE_128]);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+  const reader = new ZXing.BrowserMultiFormatReader(hints);
+  let controls = null;
+
+  function setStatus(msg, cls) {
+    const s = $('status');
+    s.textContent = msg;
+    s.className = cls || '';
+  }
+
+  function nombreFormato(f) {
+    const n = ZXing.BarcodeFormat[f] || String(f);
+    if (n === 'EAN_13') return 'EAN-13';
+    if (n === 'CODE_128') return 'Code 128';
+    return n;
+  }
+
+  async function iniciarCamara() {
+    if (controls) { controls.stop(); controls = null; }
+    setStatus('Apunta la cámara al código de barras...');
+    try {
+      controls = await reader.decodeFromConstraints(
+        { video: { facingMode: { ideal: 'environment' } } },
+        $('video'),
+        (result, err, ctrl) => {
+          if (result) {
+            $('codigo').value = result.getText();
+            $('formato').value = nombreFormato(result.getBarcodeFormat());
+            if (navigator.vibrate) navigator.vibrate(100);
+            ctrl.stop();
+            controls = null;
+            setStatus('Código leído: ' + result.getText(), 'ok');
+          }
+        }
+      );
+    } catch (e) {
+      setStatus('No se pudo abrir la cámara: ' + e, 'err');
+    }
+  }
+
+  async function guardar() {
+    const codigo = $('codigo').value.trim();
+    if (!codigo) {
+      setStatus('Escanea o escribe un código antes de guardar.', 'err');
+      return;
+    }
+    const btn = $('guardarBtn');
+    btn.disabled = true;
+    setStatus('Enviando...');
+    const payload = {
+      token: TOKEN,
+      hoja: HOJA,
+      fecha: new Date().toISOString(),
+      tipo: $('tipo').value,
+      codigo: codigo,
+      formato: $('formato').value || 'manual',
+      cantidad: $('cantidad').value.trim(),
+      usuario: $('usuario').value.trim(),
+      notas: $('notas').value.trim()
+    };
+    try {
+      await fetch(ENDPOINT, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      setStatus('Enviado. Revisa la pestaña "Escaneos" para confirmar la fila.', 'ok');
+      $('codigo').value = '';
+      $('formato').value = '';
+      $('cantidad').value = '';
+      $('notas').value = '';
+    } catch (e) {
+      setStatus('Error al enviar: ' + e, 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  $('startBtn').addEventListener('click', iniciarCamara);
+  $('guardarBtn').addEventListener('click', guardar);
+</script>
+</body>
+</html>
